@@ -13,3 +13,21 @@
 #   escalation_reason → why escalation was triggered
 #   booking_details  → populated when create_booking tool succeeds
 #   next_node        → internal routing hint for conditional edges
+
+from argparse import OPTIONAL
+from typing import TypedDict, Optional
+
+class AgentState(TypedDict):
+    message: list
+    sender_id: Optional[str]
+    channel: Optional[str]
+    salon_id: Optional[str]
+    salon_config: Optional[dict]
+    conversation_id: Optional[str]
+    human_handling: Optional[bool]
+    pilot_mode: Optional[bool]
+    final_response: Optional[str]
+    escalation_reason : Optional[str]
+    booking_details: Optional[dict]
+    next_node: Optional[str]
+    
