@@ -1,29 +1,69 @@
-# LangGraph node functions.
-# Each function = one step in the agent workflow.
-# Every node takes AgentState as input, returns a partial dict update.
-#
-# Nodes to implement:
-#
-# run_agent(state) → dict
-#   Calls GPT-4o with current messages + system prompt + TOOL_SCHEMAS.
-#   If response has tool_calls → set next_node = "execute_tools"
-#   If response is final text  → set next_node = "send_reply"
-#
-# execute_tools(state) → dict
-#   Reads tool_calls from last message in state.
-#   Runs execute_tool() for each tool call.
-#   Appends tool result messages to conversation.
-#   If escalate_to_human was called → set next_node = "escalate"
-#   Otherwise → set next_node = "run_agent" (loop back)
-#
-# send_reply(state) → dict
-#   pilot_mode = True  → save draft to DB, notify team via Slack
-#   pilot_mode = False → send via Meta API
-#
-# escalate(state) → dict
-#   Sets human_handling = True in DB and Redis.
-#   Sends Slack alert to team.
-#   Sends holding message to customer via Meta API.
-#
-# route_after_agent(state) → str   ← routing function for conditional edge
-# route_after_tools(state) → str   ← routing function for conditional edge
+from openai import OpenAI
+from app.config import settings
+from app.agent.state import AgentState
+from app.agent.prompts import build_system_prompt
+from app.agent.tools import TOOL_SCHEMAS
+
+_client=None
+
+def _get_client()-> OpenAI:
+    global _client
+    if _client is None:
+        _client = OpenAI(api_key=settings.openai_api_key)
+    return _client
+
+def run_agent(state: AgentState)-> dict:
+    client = _get_client()
+    system_prompt= {
+        "role": "system",
+        "content": build_system_prompt(state["salon_config"]),
+    }
+    full_messages = [system_prompt] + state["messages"]
+
+    response = client.chat.completions.create(
+        model=settings.openai_model,
+        messages= full_messages,
+        tools=TOOL_SCHEMAS,
+        tool_choice="auto",
+    )
+    assistant_message = response.choices[0].message
+    finish_reason = response.choices[0].finish_reason
+
+    if finish_reason == "tool_calls" and assistant_message.tool_calls:
+        tool_calls_data = [
+            {
+                "id": tool_call.id,
+                "type":"function",
+                "function": {
+                    "name": tool_call.function.name,
+                    "arguments": tool_call.function.arguments,
+                },
+            }
+            for tool_call in assistant_message.tool_calls
+        ]
+
+        new_message = {
+            "role":"assistant",
+            "content": assistant_message.content,
+            "tool_calls": tool_calls_data,
+        }
+
+        return {
+            "messages": state["messages"]+ [new_message],
+            "next_node": "execute_tools",
+        }
+    
+    final_text =  assistant_message.content or ""
+    new_message = {
+        "role": "assistant",
+        "content": final_text,
+    }
+
+    return {
+        "messages": state["messages"] + [new_message],
+        "final_response": final_text,
+        "next_node": "send_reply",
+    }
+
+
+        
