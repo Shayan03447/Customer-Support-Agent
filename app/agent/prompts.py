@@ -1,20 +1,3 @@
-# System prompt template for the salon support agent.
-#
-# Define a SYSTEM_PROMPT_TEMPLATE string with {placeholders} for:
-#   {salon_name}, {salon_address}, {salon_hours},
-#   {deposit_policy}, {cancellation_policy}
-#
-# Define build_system_prompt(salon_config: dict) -> str
-#   Injects salon-specific data into the template at runtime.
-#   Called by the run_agent node before every OpenAI API call.
-#
-# Critical rules to include in the prompt:
-#   - NEVER quote a price without calling get_service_price tool first
-#   - If price not found → call escalate_to_human
-#   - Collect name, service, date, time, phone/email before create_booking
-#   - If customer wants to speak to a person → call escalate_to_human
-#   - If customer is upset → call escalate_to_human
-#   - Keep replies short and conversational
 SYSTEM_PROMPT_TEMPLATE= f"""
 you are the customer support assistant for {salon_name}, a professional hair braiding salon in the united states
 your primary goal is to provide accurate, friendly and efficient customer support while strictly following salon policies and tool requirements.
@@ -163,3 +146,21 @@ A successfull conversation always:
 - Escalates whenever requuired
 - Provide short, friendly responses
 """
+
+def build_system_prompt(salon_config: dict) -> str:
+    hours = salon_config.get("salon_hours", {})
+    if hours:
+        hours_text = "\n".join(
+            f"{day.capitalize()}: {time}"
+            for day, time in hours.items()
+        )
+    else:
+        hours_text = "Business hours are not available"
+
+    return SYSTEM_PROMPT_TEMPLATE.format(
+        salon_name=salon_config.get("salon_name", "Our Salon"),
+        salon_address=salon_config.get("salon_address", "Contact us for address"),
+        salon_hours=hours_text,
+        deposit_policy=salon_config.get("deposit_policy","$30 deposit required"),
+        cancellation_policy=salon_config.get("cancellation_policy","24-hour notice required"),
+    )
